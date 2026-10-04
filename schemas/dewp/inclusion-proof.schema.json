@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intyga.com/schemas/dewp/inclusion-proof.schema.json",
+  "title": "DEWP Single Inclusion Proof Bundle",
+  "description": "A portable, offline-verifiable two-hop Merkle inclusion proof for one Witness Event (dewp.audit.inclusion-proof).",
+  "type": "object",
+  "required": ["protocol", "version", "kind", "event", "proof"],
+  "additionalProperties": true,
+  "properties": {
+    "protocol": { "const": "DEWP" },
+    "version": {
+      "const": "1.0",
+      "description": "DEWP specification version. Pinned: an unrecognised version must fail schema validation rather than be waved through as a plain string."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["dewp.audit.inclusion-proof"],
+      "description": "MUST be dewp.audit.inclusion-proof. There are no vendor-prefixed aliases (DEWP §6.5)."
+    },
+    "exportedAt": { "type": "string", "format": "date-time" },
+    "verificationLevel": {
+      "type": "string",
+      "enum": ["INVALID", "COMMITMENT_VERIFIED", "CONTENT_VERIFIED", "SIGNATURE_VERIFIED", "FULLY_VERIFIED"]
+    },
+    "algorithmRegistry": { "$ref": "#/$defs/algorithmRegistry" },
+    "event": {
+      "type": "object",
+      "required": ["seq"],
+      "properties": {
+        "seq": { "$ref": "#/$defs/numericSeq" },
+        "id": {
+          "type": "string",
+          "description": "Opaque event identifier (RECOMMENDED UUIDv7). Distinct from seq."
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "type": { "type": "string" },
+        "outcome": { "type": "string", "enum": ["SUCCESS", "FAILURE", "PENDING"] },
+        "canonical": {
+          "description": "The full DEWP Core (or profile) canonical preimage as an object or array; absent for COMMITMENT_ONLY entries.",
+          "type": ["object", "array"]
+        }
+      }
+    },
+    "proof": { "$ref": "#/$defs/inclusionProof" },
+    "anchorRef": {
+      "type": ["string", "null"],
+      "description": "Publication receipt for the daily root. A self-identifying commitment reference, not a signed anchor."
+    },
+    "anchored": {
+      "type": "boolean",
+      "description": "Producer claim that a publication receipt exists — COMMITMENT only. NOT independence; see externallyAnchored."
+    },
+    "externallyAnchored": {
+      "type": "boolean",
+      "description": "Producer claim that a §5.3 external anchor quorum (distinct INDEPENDENT issuers — neither SELF nor WEBHOOK — >= the producer's configured requirement) exists. Display/triage only — verifiers evaluate the signed anchors under their own policy."
+    },
+    "externallyAnchoredRequired": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The quorum size the producer evaluated `externallyAnchored` against. Without it the boolean is unreadable: a 1-of-1 deployment and a 2-of-N deployment both publish `true`. A producer claim like the flag itself — it states what the producer required, not what a verifier confirmed."
+    },
+    "anchor": { "$ref": "https://intyga.com/schemas/dewp/anchor.schema.json" },
+    "anchors": {
+      "type": "array",
+      "items": { "$ref": "https://intyga.com/schemas/dewp/anchor.schema.json" },
+      "description": "Multiple independent anchors over the same dailyRoot, for quorum verification (§5.3)."
+    }
+  },
+  "$defs": {
+    "hex64": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "numericSeq": {
+      "type": "string",
+      "pattern": "^[0-9]+$",
+      "description": "Stringified 64-bit integer; MUST NOT be a UUID."
+    },
+    "algorithmRegistry": {
+      "type": "object",
+      "properties": {
+        "hashAlgorithm": { "const": "SHA-256" },
+        "serialization": { "const": "RFC8785-JCS" },
+        "merkleVersion": { "type": "integer" },
+        "signatureAlgorithms": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "proofStep": {
+      "type": "object",
+      "required": ["siblingHash", "siblingPosition"],
+      "additionalProperties": false,
+      "properties": {
+        "siblingHash": { "$ref": "#/$defs/hex64" },
+        "siblingPosition": { "type": "string", "enum": ["LEFT", "RIGHT"] }
+      }
+    },
+    "inclusionProof": {
+      "type": "object",
+      "description": "Two-hop Merkle inclusion proof. The four bounds fields are REQUIRED: this tree self-pairs an unpaired trailing node, so an unbounded path check accepts a proof for a leaf that was never in the tree (DEWP §11.1).",
+      "required": [
+        "leaf",
+        "blockRoot",
+        "blockProof",
+        "leafIndex",
+        "blockLeafCount",
+        "checkpointRoot",
+        "checkpointProof",
+        "checkpointLeafIndex",
+        "checkpointLeafCount"
+      ],
+      "properties": {
+        "seq": { "$ref": "#/$defs/numericSeq" },
+        "leaf": { "$ref": "#/$defs/hex64" },
+        "blockIndex": { "type": "string" },
+        "blockRoot": { "$ref": "#/$defs/hex64" },
+        "blockProof": { "type": "array", "items": { "$ref": "#/$defs/proofStep" } },
+        "leafIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position of this event's leaf within its block. MUST satisfy 0 <= leafIndex < blockLeafCount."
+        },
+        "blockLeafCount": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of leaves in the block tree. Determines the required blockProof length: ceil(log2(n)), or 0 when n <= 1."
+        },
+        "checkpointId": { "type": "string" },
+        "checkpointRoot": { "$ref": "#/$defs/hex64" },
+        "checkpointProof": { "type": "array", "items": { "$ref": "#/$defs/proofStep" } },
+        "checkpointLeafIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Position of this block root within the daily tree. MUST satisfy 0 <= checkpointLeafIndex < checkpointLeafCount."
+        },
+        "checkpointLeafCount": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of leaves in the daily tree. Determines the required checkpointProof length."
+        },
+        "anchorRef": { "type": "string" },
+        "anchored": {
+          "type": "boolean",
+          "description": "Producer claim that a publication receipt (anchorRef) exists — COMMITMENT only, structurally true for every checkpointed proof. NOT an independence claim; see externallyAnchored."
+        },
+        "externallyAnchored": {
+          "type": "boolean",
+          "description": "Producer claim that a §5.3 external anchor quorum (distinct INDEPENDENT issuers — neither SELF nor WEBHOOK — >= the producer's configured requirement) exists for this root. Display/triage only — a verifier establishes independence from the signed anchors under its own policy, never from this flag."
+        },
+        "externallyAnchoredRequired": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The quorum size the producer evaluated `externallyAnchored` against. Without it the boolean is unreadable: a 1-of-1 deployment and a 2-of-N deployment both publish `true`. A producer claim like the flag itself — it states what the producer required, not what a verifier confirmed."
+        }
+      }
+    }
+  }
+}

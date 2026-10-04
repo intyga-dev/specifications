@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intyga.com/schemas/dewp/anchor.schema.json",
+  "title": "DEWP Signed Anchor Object",
+  "description": "A signed commitment to a Daily Checkpoint Root AND its position in the log, published to an independent public anchor. The signature (or external attestation) covers the raw 32-byte anchorDigest = SHA-256(0x03 || JCS([dailyRoot,timestamp,issuer,algorithm,seqStart,seqEnd,chainHash])), never its hex encoding.",
+  "type": "object",
+  "required": ["dailyRoot", "timestamp", "issuer", "algorithm", "keyId", "seqStart", "seqEnd", "chainHash"],
+  "additionalProperties": true,
+  "anyOf": [
+    {
+      "description": "SELF anchor: the DEWP §5.2 signature IS the evidence.",
+      "properties": { "signature": { "type": "string", "minLength": 1 } },
+      "required": ["signature"]
+    },
+    {
+      "description": "External anchor (REKOR / RFC3161): attestation lives in `evidence`; `signature` is empty.",
+      "properties": { "evidence": { "type": "string", "minLength": 1 } },
+      "required": ["evidence"]
+    }
+  ],
+  "properties": {
+    "dailyRoot": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "64-char lowercase hex Daily Checkpoint Root."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+      "description": "ISO 8601 UTC (YYYY-MM-DDTHH:mm:ss.sssZ): the checkpoint's own commit time (its anchoredAt). An external witness's authenticated time is held against it (DEWP §5.3 time bound)."
+    },
+    "issuer": {
+      "type": "string",
+      "description": "HTTPS URI or DID of the anchor provider."
+    },
+    "algorithm": {
+      "type": "string",
+      "enum": ["ES256", "Ed25519", "RSA-PSS"],
+      "description": "Signature algorithm (signature scheme, not an encryption padding)."
+    },
+    "seqStart": {
+      "type": "string",
+      "pattern": "^[0-9]+$",
+      "description": "First global seq the checkpoint commits (stringified integer). Part of the signed preimage: binds the anchor to one position in the log."
+    },
+    "seqEnd": {
+      "type": "string",
+      "pattern": "^[0-9]+$",
+      "description": "Last global seq the checkpoint commits (stringified integer). Part of the signed preimage."
+    },
+    "chainHash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "The checkpoint's §5.4 continuity chain hash, which commits to its range, entry count, commit time and every earlier root. Part of the signed preimage."
+    },
+    "keyId": {
+      "type": "string",
+      "description": "Identifier of the active SPKI public key used to verify `signature`."
+    },
+    "signature": {
+      "type": "string",
+      "description": "Base64 signature over the raw 32-byte anchorDigest. Empty for external anchors, whose attestation lives in `evidence` instead."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["SELF", "REKOR", "RFC3161", "WEBHOOK"],
+      "default": "SELF",
+      "description": "SELF is the producer's own §5.2 signature; the rest are external issuers. Only external issuers count toward the §5.3 independence check, because a quorum made of one party's signatures is not a quorum."
+    },
+    "evidence": {
+      "type": ["string", "null"],
+      "description": "Base64 self-contained attestation from an external issuer: a Rekor entry's SET plus inclusion proof, or a DER TimeStampToken. Null for SELF anchors, whose evidence IS `signature`. Carried in the bundle rather than fetched on demand so verification stays offline — a verifier that had to ask the anchor provider to confirm the anchor would be trusting it again."
+    }
+  }
+}

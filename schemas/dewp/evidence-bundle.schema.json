@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intyga.com/schemas/dewp/evidence-bundle.schema.json",
+  "title": "DEWP Multi-Entry Evidence Bundle",
+  "description": "A tenant-scoped, offline-verifiable bundle of Witness Events with a gapless tenantSeq commitment (dewp.audit.evidence-bundle).",
+  "type": "object",
+  "required": ["protocol", "version", "kind", "entries", "checkpoints"],
+  "additionalProperties": true,
+  "properties": {
+    "protocol": { "const": "DEWP" },
+    "version": {
+      "const": "1.0",
+      "description": "DEWP specification version. Pinned: an unrecognised version must fail schema validation rather than be waved through as a plain string, which let a bundle claim any version at all."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["dewp.audit.evidence-bundle"],
+      "description": "MUST be dewp.audit.evidence-bundle. There are no vendor-prefixed aliases (DEWP §6.5)."
+    },
+    "profile": {
+      "type": "string",
+      "description": "Application Profile Extension identifier (DEWP §4.5), e.g. trust.intyga.audit.v1. Names the profile whose extra ordered fields follow DEWP Core in the canonical preimage."
+    },
+    "algorithmRegistry": { "$ref": "#/$defs/algorithmRegistry" },
+    "howToVerify": {
+      "type": "string",
+      "description": "Human-readable pointer to the verification procedure. Informational only — never load-bearing for verification."
+    },
+    "exportedAt": { "type": "string", "format": "date-time" },
+    "tenant": {
+      "type": "object",
+      "properties": { "id": { "type": "string" }, "name": { "type": "string" } }
+    },
+    "range": {
+      "type": "object",
+      "properties": {
+        "from": { "type": "string", "format": "date-time" },
+        "to": { "type": "string", "format": "date-time" }
+      }
+    },
+    "tenantSequenceCommitment": {
+      "type": "object",
+      "required": ["tenantId", "firstTenantSeq", "lastTenantSeq"],
+      "properties": {
+        "tenantId": { "type": "string" },
+        "firstTenantSeq": { "$ref": "#/$defs/numericSeq" },
+        "lastTenantSeq": { "$ref": "#/$defs/numericSeq" }
+      },
+      "description": "The contiguous committed tenantSeq range this bundle asserts; verifiers reject gaps/duplicates/disorder within it. REQUIRED whenever any entry carries a tenantSeq, and omitted only when none does — a producer MUST NOT omit it for a bundle that has one."
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["event", "proof"],
+        "properties": {
+          "event": {
+            "type": "object",
+            "required": ["seq"],
+            "properties": {
+              "seq": { "$ref": "#/$defs/numericSeq" },
+              "id": { "type": "string" },
+              "createdAt": { "type": "string", "format": "date-time" },
+              "type": { "type": "string" },
+              "outcome": { "type": "string", "enum": ["SUCCESS", "FAILURE", "PENDING"] },
+              "tenantSeq": {
+                "type": ["string", "null"],
+                "pattern": "^[0-9]+$",
+                "description": "Per-tenant monotonic counter, carried on EVERY entry including redacted ones (DEWP §15 Commitment Preservation). Without it a redacted entry is invisible to the gapless check and lawful redaction reads as a phantom gap."
+              },
+              "redacted": {
+                "type": "boolean",
+                "description": "Convenience flag mirroring redaction.mode === COMMITMENT_ONLY, retained for consumers written against the older shape. `redaction` is authoritative."
+              },
+              "signerDid": { "type": ["string", "null"] },
+              "sigAlg": { "type": ["string", "null"] },
+              "redaction": { "$ref": "#/$defs/redaction" },
+              "canonical": { "type": ["object", "array"] }
+            }
+          },
+          "proof": {
+            "type": "object",
+            "required": ["leaf"],
+            "properties": {
+              "seq": { "$ref": "#/$defs/numericSeq" },
+              "leaf": { "$ref": "#/$defs/hex64" },
+              "blockRoot": { "type": "string" },
+              "checkpointRoot": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "checkpoints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["root"],
+        "properties": {
+          "id": { "type": "string" },
+          "root": { "$ref": "#/$defs/hex64" },
+          "anchorRef": {
+            "type": ["string", "null"],
+            "description": "Publication receipt for this root — a self-identifying commitment reference, written unconditionally at checkpoint time. NOT an independence claim."
+          },
+          "anchoredAt": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When the publication receipt was recorded (self-commitment time). Independence, if any, is carried by `anchors`."
+          },
+          "seqStart": { "$ref": "#/$defs/numericSeq" },
+          "seqEnd": { "$ref": "#/$defs/numericSeq" },
+          "entryCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Committed events under this root. With prevChainHash, root, seqStart, seqEnd and anchoredAt it recomputes chainHash (DEWP §5.4)."
+          },
+          "prevChainHash": {
+            "type": ["string", "null"],
+            "description": "The predecessor checkpoint's chainHash; the empty string at the genesis checkpoint."
+          },
+          "chainHash": {
+            "type": ["string", "null"],
+            "description": "This checkpoint's §5.4 chain hash. Every anchor in `anchors` binds it (DEWP §5.2); a verifier recomputes it from the fields above and refuses a checkpoint whose chain hash does not recompute."
+          },
+          "anchors": {
+            "type": "array",
+            "items": { "$ref": "https://intyga.com/schemas/dewp/anchor.schema.json" },
+            "description": "Independent anchors over this checkpoint's root. This is the set the DEWP §5.3 quorum rule is evaluated over, so a bundle carrying only a single top-level anchor cannot express quorum."
+          },
+          "externallyAnchored": {
+            "type": "boolean",
+            "description": "Producer claim that a §5.3 external anchor quorum (distinct INDEPENDENT issuers — neither SELF nor WEBHOOK — >= the producer's configured requirement) exists for this checkpoint. Display/triage only — verifiers evaluate `anchors` under their own policy."
+          },
+          "externallyAnchoredRequired": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "The quorum size the producer evaluated `externallyAnchored` against. Without it the boolean is unreadable: a 1-of-1 deployment and a 2-of-N deployment both publish `true`. A producer claim like the flag itself — it states what the producer required, not what a verifier confirmed."
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "hex64": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "numericSeq": {
+      "type": "string",
+      "pattern": "^[0-9]+$",
+      "description": "Stringified 64-bit integer; MUST NOT be a UUID."
+    },
+    "algorithmRegistry": {
+      "type": "object",
+      "description": "DEWP §12 algorithm registry as emitted. Ed25519 is an ANCHOR algorithm (§14), not an event sigAlg, and is deliberately absent from signatureAlgorithms.",
+      "properties": {
+        "hashAlgorithm": { "const": "SHA-256" },
+        "serialization": { "const": "RFC8785-JCS" },
+        "merkleVersion": { "type": "integer" },
+        "signatureAlgorithms": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "required": ["mode"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["NONE", "COMMITMENT_ONLY"] },
+        "removedFields": { "type": "array", "items": { "type": "string" } },
+        "redactedAt": { "type": "string", "format": "date-time" },
+        "reason": { "type": "string" },
+        "commitment": {
+          "type": "object",
+          "description": "Retained commitment metadata for a COMMITMENT_ONLY entry: the original leaf hash MUST be preserved unchanged.",
+          "required": ["leaf"],
+          "properties": {
+            "leaf": { "$ref": "#/$defs/hex64" },
+            "tenantSeq": { "$ref": "#/$defs/numericSeq" }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "mode": { "const": "COMMITMENT_ONLY" } } },
+          "then": { "required": ["removedFields", "redactedAt", "commitment"] }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "date": "2026-10-04",
+  "sources": {
+    "docs/DIV.md": "2cf8c6d30144b728339f777d7836c966c9caa11527f866ee07c8e10a6121341f",
+    "docs/DEWP.md": "f82c3065eecf683097796f9daf738d26882a49df4eb9e910082d2605f3c703ae",
+    "docs/schemas/dewp/anchor.schema.json": "f154baedb303efca57a0ae867f3d34a4ed73ad111403b7102da131b210f7b11f",
+    "docs/schemas/dewp/evidence-bundle.schema.json": "480df5f1a27c87fb7bc0ba3110b2077a99dd0448c35d2a13579fb4755b8a3b8f",
+    "docs/schemas/dewp/inclusion-proof.schema.json": "ad37c4b24ce290056530bcb3e25404ba6e74bf1e9f44f8b529ea25d53f6285d8",
+    "packages/mcp-schemas/vectors/audit-signature-vectors.json": "21edc41d3643c6f196cbc2c26a595a76e0094ac0d1b0679be9f55fa3babb03ce",
+    "packages/mcp-schemas/vectors/canonical-vectors.json": "6412a7602d9268a190f1b6435141561e4a12bca1153f54df70d08dbcc7789e36",
+    "packages/mcp-schemas/vectors/ledger-vectors.json": "b7cfd067cf53d1924ccb467f83e08b2485df2aeb831cc16eb9906bf6cc9483c1",
+    "packages/mcp-schemas/vectors/rfc3161-vectors.json": "24b48b2a41b5edb64d4bac1a32bfcdfbfdbc314b23450a1de02703fb17558baa",
+    "packages/mcp-schemas/vectors/verifier-parity-vectors.json": "303c7d9f6bd92ee9696094b23fa26697412c1a166e6b2ca84c0c2e0b3f4dec49",
+    "packages/mcp-schemas/vectors/webauthn-vector.json": "cb8b98c6acd0640b02c596620ede4c81feb1c0ac0862fae63cb3bbac8d674471"
+  }
+}
