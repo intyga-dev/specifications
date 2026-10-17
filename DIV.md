@@ -2,7 +2,9 @@
 
 **A Stateless Protocol Primitive for Non-Repudiable Action Authorization in Autonomous and High-Risk Infrastructure.**
 
-*Open Specification · Version 1.0.0 · 4 October 2026*
+*Open Specification · DIV 1.1.0 · Edition 1.1.0 · 10 October 2026*
+
+This source edition defines payload versions 1 and 2.
 
 ---
 
@@ -163,7 +165,8 @@ An implementation whose standard library already emits the shortest round-trip f
 
 ```json
 {
-  "v": 1,
+  "v": 2,
+  "tenantId": "workspace-production",
   "type": "div-intent-verification",
   "target": "prod-db-cluster-01",
   "actionType": "db:dropTable",
@@ -195,7 +198,8 @@ An implementation whose standard library already emits the shortest round-trip f
 
 | Field | Type | Requirement | Description |
 |---|---|---|---|
-| v | uint8 | REQUIRED | DIV protocol version. MUST equal 1. |
+| v | uint8 | REQUIRED | DIV payload version: `2` for tenant-bound approvals; `1` for the historical format (§4.3.7). |
+| tenantId | string | REQUIRED in v2 | Nonempty opaque tenant identifier, asserted independently by the Relying Party (§4.3.7). Absent in v1. |
 | type | string | REQUIRED | MUST equal div-intent-verification. |
 | target | string | REQUIRED | Intended execution target identifier. |
 | actionType | string | REQUIRED | Machine-readable operation identifier. |
@@ -464,7 +468,10 @@ projected to exactly six fields: `signerDid`, `signerPublicKey`, `signature`, `s
 `authenticatorData`, and `clientDataJSON`; absent optional fields become JSON `null`. Sort the
 projected witnesses by their JCS strings in UTF-16 code-unit order before serializing the outer
 object. A legacy single-witness receipt supplies its top-level witness as a one-element array;
-the digest still commits to the complete signed proof. Return `sha256:` plus lowercase hex.
+its absent top-level `signerDid` is normalized to the empty string before projection, matching the
+legacy witness conversion. An explicitly supplied `signatures` array is projected directly, with
+missing fields becoming `null` and explicit empty strings preserved. The digest still commits to
+the complete signed proof. Return `sha256:` plus lowercase hex.
 Both constructions have pinned `agentDigests` cases in `canonical-vectors.json`.
 
 The PEP MUST reconstruct the intended target, action, parameters, reversibility, amount, agent
@@ -485,6 +492,47 @@ the RP must maintain a durable authoritative head and an independently enforced 
 sessions (ten individually approved payments may still exceed a global limit).
 
 ---
+
+### 4.3.7 Tenant binding and payload versions
+
+Payload version `2` adds exactly one common field, `tenantId`, to each of the five payload kinds:
+`div-intent-verification`, `div-offline-intent`, `div-delegation`, `div-agent-authority` and
+`div-platform-intent`. Its value MUST be a nonempty string. It is an opaque identifier: issuers and
+verifiers MUST NOT case-fold, trim, normalize or otherwise rewrite it. Denial derivation preserves
+both `v` and `tenantId`. All other fields and canonicalization rules remain those of the corresponding
+payload kind, including the agent extension when present.
+
+A version 2 verifier MUST receive the expected tenant identifier from the Relying Party's trusted
+configuration or authenticated execution context. It MUST reject a missing or empty expectation,
+a missing or invalid signed tenant, and any unequal tenant. It MUST reconstruct the canonical bytes
+using that independently supplied identifier. Reading `tenantId` from the receipt and passing it
+back as the expectation does not establish tenant binding and MUST NOT be used to authorize execution.
+A human's public key, DID, email address, WebAuthn RP ID or current browser workspace does not establish
+which tenant owns the action. A person MAY use the same credential in multiple tenants where they
+have the necessary standing; each approval nevertheless binds exactly one tenant.
+
+A version 2 offline challenge MUST use the tenant from the independently authenticated trust bundle.
+Every delegation used to approve it, and every authority seal in an agent's chain, MUST bind the
+same expected tenant. A version 1 delegation or ancestor cannot supply tenant-bound authority to a
+version 2 approval. Target, quorum, scope and key checks remain mandatory in addition to tenant binding.
+
+Version 1 retains its published canonical bytes and carries no `tenantId`. Implementations MAY
+continue to verify historical version 1 receipts when the caller supplies no tenant expectation.
+They MUST reject version 1 whenever a tenant expectation is supplied, and MUST NOT silently retry
+verification without that expectation. An explicitly supplied empty string is an invalid expectation,
+not an omitted one; it MUST be refused for every payload version. Unknown versions remain refused. The reference builders emit
+version 2 when a tenant is supplied and preserve version 1 when it is absent; this compatibility
+facility is for historical artifacts, not a way for a new tenant-aware issuer to omit the binding.
+Offline approver tools MUST refuse to create new signatures over version 1 challenges. They MAY
+decode those envelopes for read-only inspection; new signing requires version 2 and its nonempty
+tenant identifier, displayed to the approver.
+
+New INTYGA gateway ceremonies use version 2. A pending or unconsumed version 1 authorization must be
+requested again before signing or execution; already signed bytes are never rewritten. The approval
+interface displays the signed workspace ID and the current trusted display name of that workspace.
+The name is explanatory UI text, not a signed identity claim; renaming a workspace does not change
+the identifier in an existing receipt. Protocol payload versioning is separate from specification
+publication and trust-bundle versions. The frozen specification edition `1.0.0` is unchanged.
 
 ## 4.4 Proof Envelope Schema
 
@@ -668,7 +716,7 @@ A Relying Party resolves trusted Approver keys from a **trust anchor** it contro
 
 Therefore a deployment MUST NOT use a key-set anchor when `requiredApprovals` > 1, unless it also guarantees at most one listed key per approver — which is the same requirement stated differently, and is fragile in exactly the way credential rotation and multi-device enrollment make likely.
 
-**One key, one approver.** An identity-associating anchor can itself map one key to two identities — an export error, or one person enrolled under two identifiers. Counting distinct identities alone would then let that key's holder satisfy a 2-of-N quorum alone. A verifier MUST count distinct identities AND distinct keys: once a key has been counted for one identity, a witness verifying under the same key for a different identity MUST NOT count. The reference verifiers compare keys by their decoded bytes; the same key in two different encodings (a COSE_Key and an SPKI) is not detected, so an anchor SHOULD NOT carry one key in two encodings.
+**One key, one approver.** An identity-associating anchor can itself map one key to two identities — an export error, or one person enrolled under two identifiers. Counting distinct identities alone would then let that key's holder satisfy a 2-of-N quorum alone. A verifier MUST count distinct identities AND distinct keys: once a key has been counted for one identity, a witness verifying under the same key for a different identity MUST NOT count. Key equality MUST compare the cryptographic public-key value, not the received encoding: equivalent supported representations (for example, P-256 COSE_Key and SPKI) count as one key. Encoding a key differently MUST NOT increase the quorum.
 
 - **Identity-committing anchor (self-certifying identifiers). Support is OPTIONAL.** The pinned identifier itself commits to a key — e.g. `did:intyga:key:<base64url(sha256(key bytes))>` — so the anchor entry needs no key material at all: the verifier accepts the envelope-carried key exactly when it hashes to the pinned identifier. This does not conflict with §5 step 3's prohibition on trusting envelope-carried keys, because the *commitment* is resolved from the Relying Party's own configuration; the envelope merely transports bytes that are checked against it. **Precedence:** an anchor that additionally maps keys to such an identity takes precedence over the commitment — the explicit mapping must be able to both extend the identity to later-enrolled credentials and *narrow* it away from a revoked one, neither of which a commitment-always-wins rule can express. A single-key commitment cannot rotate; identities expected to hold several credentials over time SHOULD use a stable identifier under an identity-associating anchor instead.
 
@@ -685,7 +733,8 @@ The Relying Party MUST execute verification immediately before performing an Irr
 The verification procedure is:
 
 1. Receive the Proof Envelope.
-2. Validate Proof Envelope structure.
+2. Validate Proof Envelope structure and enforce the tenant/version rules of §4.3.7. A tenant-bound
+   execution MUST provide its independently trusted expected tenant and MUST reject a version 1 proof.
 3. Resolve the trusted Approver public key(s) according to local policy. The key MUST come from the Relying Party's own key management; a key read from the envelope proves only that the envelope is internally consistent. (An identity-committing anchor — §4.4.6, OPTIONAL — satisfies this rule by pinning a key *commitment* in the Relying Party's own configuration: the envelope-carried key is accepted only when it matches that commitment.) When `requirement.requiredApprovals` is greater than 1, the trust anchor MUST associate keys with identities (§4.4.6) — a key-set anchor cannot express the distinct-identity rule of §4.4.2.
    - **3a.** Validate `requirement.signerClass` against the registry of §4.3.2, reading the `requirement` from the envelope's `canonicalPayload` (an issuance-frozen field — §4.4.1; a forged value fails the byte comparison in step 6): reject the envelope if the field is absent or carries a value this verifier does not recognize. An unrecognized class MUST NOT be treated as human-equivalent — future signer classes become acceptable only when a verifier is explicitly taught their semantics, never by default.
    - **3b.** If `requirement.requiredApprovals` is greater than 1, **or** `requirement.requesterCannotApprove` is true, the anchor MUST be identity-associating (§4.4.6); reject the envelope otherwise. For `requesterCannotApprove` the reason is that separation of duties is a statement about *identities*: under a key-set anchor each key is its own identity and the envelope's `signerDid` is attacker-controlled, so "this signer is not the requester" cannot be established. Reject at this step rather than at step 7 — the failure is that the Relying Party's anchor is the wrong shape for the signed policy, not that a quorum came up short, and reporting it as a shortfall sends an operator looking for missing approvals that were never the problem.
@@ -823,6 +872,8 @@ A Trust Bundle MUST carry, at minimum:
 |---|---|---|
 | `type` | REQUIRED | MUST equal `div-trust-bundle-v1` for the first public exact action policy profile. The internal tenant policy migration number is separate. |
 | `v` | REQUIRED | MUST equal `1` for this profile. Unknown versions MUST be refused. |
+| `tenantId` | REQUIRED | Nonempty opaque tenant identifier, authenticated by the bundle signature. Used unchanged in every new offline challenge and expected receipt (§4.3.7). |
+| `webauthn` | OPTIONAL | `{ "origin": string, "rpId": string }`, both nonempty. Signed WebAuthn verification pins for ordinary/delegation witnesses; never inferred from a receipt. |
 | `approvers` | REQUIRED | Approver identities and the public keys bound to each. |
 | `policy` | REQUIRED | The tenant baseline and exact action-ID requirements, including eligible Approver identities. |
 | `unmatchedActionPolicy` | REQUIRED | `DENY` or `BASELINE`, covered by the bundle signature. |
@@ -832,7 +883,11 @@ A Trust Bundle MUST carry, at minimum:
 A Trust Bundle MUST be integrity-protected by a signature the Relying Party can verify without
 network access, using key material pinned at export time. A Relying Party MUST refuse an expired
 bundle, and MUST NOT fall back to an unverified or unbounded Approver set when no valid bundle is
-available.
+available. An offline-intent anchor MUST name an explicit eligible-DID set derived from the selected
+rule or a verified delegation. The presence of a delegate's key in the bundle is not itself
+approval authority. Omitting this restriction MUST fail closed; an explicitly empty set authorizes
+no signers. Optional WebAuthn pins do not permit weakening the required origin/RP-ID checks on a
+WebAuthn witness.
 
 *Reference format (informative).* The reference implementation
 (`packages/sdk/src/trust-bundle.ts`, exported with `intyga trust-bundle export`) carries the Trust
@@ -855,6 +910,15 @@ Because an Approver identity may be bound to more than one public key (for examp
 several registered authenticators), a conformant trust anchor MUST be able to associate multiple keys
 with one identity, and quorum MUST count distinct **identities** rather than distinct keys. Counting
 keys would let a single Approver holding several credentials satisfy an M-of-N quorum alone.
+
+**Offline-only keys.** A deployment MAY bind an Approver to a key that exists only to sign Offline
+Intent Payloads — for example a bare P-256 key kept on a disconnected device. Such a key MUST be
+distinguishable in the Trust Bundle from the Approver's other keys, and a Relying Party MUST admit it
+only when verifying an Offline Intent Proof: never a Delegation (§5a.6), which is sealed by the
+ordinary quorum, and never an Intent Proof. A key with no origin binding and no user verification that
+could seal a Delegation would hand its holder the approval authority the Delegation transfers. The
+reference format carries these keys per approver in `offlinePublicKeys`, alongside `publicKeys`; a
+bundle that lists one key in both MUST be refused.
 
 ## 5a.5 Delegation of Approval Authority
 
@@ -1008,7 +1072,8 @@ The canonical payload has `type` `div-agent-authority` and serializes under the 
 
 | Field | Type | Requirement | Description |
 |---|---|---|---|
-| v | uint8 | REQUIRED | DIV protocol version. MUST equal 1. |
+| v | uint8 | REQUIRED | DIV payload version: `2` for tenant-bound approvals; `1` for historical verification (§4.3.7). |
+| tenantId | string | REQUIRED in v2 | Nonempty opaque tenant identifier, independently asserted by the Relying Party (§4.3.7). Absent in v1. |
 | type | string | REQUIRED | MUST equal `div-agent-authority`. |
 | target | string | REQUIRED | Target identifier the authority is scoped to (Target Isolation). |
 | actionPatterns | array of string | REQUIRED, non-empty | Case-insensitive substring patterns over the machine action identifier (`actionType`). `"*"` matches all. MUST be sorted ascending by UTF-16 code unit — the SET is the scope. Deliberately NOT matched against the human-readable description: the description is authored by the agent being bounded, so matching it would let an out-of-scope request cover itself by quoting a pattern in its own text. |
@@ -1117,7 +1182,8 @@ The canonical payload has `type` `div-platform-intent` and serializes under the 
 
 | Field | Type | Requirement | Description |
 |---|---|---|---|
-| v | uint8 | REQUIRED | DIV protocol version. MUST equal 1. |
+| v | uint8 | REQUIRED | DIV payload version: `2` for tenant-bound approvals; `1` for historical verification (§4.3.7). |
+| tenantId | string | REQUIRED in v2 | Nonempty opaque tenant identifier, independently asserted by the Relying Party (§4.3.7). Absent in v1. |
 | type | string | REQUIRED | MUST equal `div-platform-intent`. |
 | hashAlg | string | REQUIRED | MUST equal `SHA-256`. |
 | payloadHash | string | REQUIRED | Lowercase hex SHA-256 (exactly 64 characters) of the platform's canonical payload bytes. Producers MUST refuse any other form — uppercase or mixed-case hex of the same digest would produce different signed bytes for the same payload. |
@@ -1261,6 +1327,17 @@ with its own fixtures rather than this file — which is how the §4.4.2 encodin
 tightened in TypeScript and ship unmirrored in three ports. A TypeScript consumer for the shared
 WebAuthn vector is a known gap, not an exemption.
 
+`tenant-binding-vectors.json` is also normative. It pins v2 canonical bytes and executable
+verification results for all five payload kinds, including fractional parameters, requester and
+tenant mismatches, explicit empty expectations, v1 refusal under tenant-bound expectations and
+same-tenant authority chains. Every verifier port MUST consume it.
+
+`offline-approval-vectors.json` pins the shared SDK contract of §5a: signed Trust Bundles and their
+validation, rule selection, eligible-DID anchors, challenge and proof envelopes, signing,
+redemption, and trust-anchor files, including independently provisioned tenant identifiers. All five
+SDKs MUST consume it. A trust-anchor file may omit a tenant only for historical or separately
+provisioned verification; an explicit tenant must be a nonempty opaque string (§4.3.7).
+
 The vectors pin, among other things:
 
 * Canonical serialization (`stableStringify`) including the cross-language number-portability
@@ -1332,8 +1409,8 @@ The vectors pin, among other things:
 
 The signing keys and ECDSA signatures inside the file are regenerated whenever the vectors are —
 they are test fixtures, not trust anchors — but every committed signature remains verifiable
-against the committed key in the same file. Trust Bundles (§5a.4) are not vectored; their
-reference format is documented in that section.
+against the committed key in the same file. Signed Trust Bundles (§5a.4), including tenant binding
+and optional WebAuthn pins, are covered by `offline-approval-vectors.json`.
 
 ---
 

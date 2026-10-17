@@ -1,10 +1,13 @@
-# DIV and DEWP, version 1.0.0
+# DIV and DEWP, edition 1.1.0
 
+This edition contains DIV 1.1.0 and DEWP 1.0.0; each document
+keeps its own version, and the edition number identifies the complete snapshot.
 This repository publishes the full [DIV](DIV.md) and [DEWP](DEWP.md)
 specifications, their JSON Schemas and conformance vectors. This release is
-pinned by the [v1.0.0 tag](https://github.com/intyga-dev/specifications/tree/v1.0.0).
-The signed payloads use protocol version 1.0; the repository release version
-identifies the complete specification, schema and vector snapshot.
+pinned by the [v1.1.0 tag](https://github.com/intyga-dev/specifications/tree/v1.1.0).
+DIV payload version 2 binds approvals to an independently expected tenant.
+Version 1 remains defined for historical receipt verification. The repository
+release version identifies the complete specification, schema and vector snapshot.
 
 DIV defines signed action approvals and their offline verification. DEWP
 defines tamper-evident audit commitments and offline evidence verification.

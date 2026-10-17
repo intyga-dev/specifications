@@ -2,7 +2,7 @@
 
 **A Stateless Protocol Primitive for Asynchronous Witness Audit, Merkle Inclusion Proofs, and Gapless Completeness in Irreversible Infrastructure.**
 
-*Open Specification · Version 1.0.0 · 4 October 2026*
+*Open Specification · DEWP 1.0.0 · Edition 1.1.0 · 10 October 2026*
 
 ---
 
