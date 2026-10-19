@@ -1,19 +1,20 @@
 {
-  "version": "1.1.0",
-  "date": "2026-10-10",
+  "version": "1.2.0",
+  "date": "2026-10-19",
   "sources": {
-    "docs/DIV.md": "7553b4e38504bdd40e50409445cf8ebb233f6c9d7dadee3c442ab58592db9ce9",
-    "docs/DEWP.md": "f82c3065eecf683097796f9daf738d26882a49df4eb9e910082d2605f3c703ae",
+    "docs/DIV.md": "c3e87122a8d44b084cbb08e6bf75445a4ca9d9cd9de595859141aaa371453e56",
+    "docs/DEWP.md": "dad022c5b763500e871682542a72d16b70337c88e8316153d13cc45f431ed3e2",
     "docs/schemas/dewp/anchor.schema.json": "f154baedb303efca57a0ae867f3d34a4ed73ad111403b7102da131b210f7b11f",
     "docs/schemas/dewp/evidence-bundle.schema.json": "480df5f1a27c87fb7bc0ba3110b2077a99dd0448c35d2a13579fb4755b8a3b8f",
+    "docs/schemas/dewp/execution-evidence-statement.schema.json": "e8595449cceb6d621dd603d242eda571cb9776ea273fdbb42c07b9748ea617ba",
     "docs/schemas/dewp/inclusion-proof.schema.json": "ad37c4b24ce290056530bcb3e25404ba6e74bf1e9f44f8b529ea25d53f6285d8",
     "packages/mcp-schemas/vectors/audit-signature-vectors.json": "21edc41d3643c6f196cbc2c26a595a76e0094ac0d1b0679be9f55fa3babb03ce",
-    "packages/mcp-schemas/vectors/canonical-vectors.json": "6412a7602d9268a190f1b6435141561e4a12bca1153f54df70d08dbcc7789e36",
+    "packages/mcp-schemas/vectors/canonical-vectors.json": "16a13ff7a00fd0d04eb956c7c2c73808c393883a995325389ed30115e6b679dc",
     "packages/mcp-schemas/vectors/ledger-vectors.json": "b7cfd067cf53d1924ccb467f83e08b2485df2aeb831cc16eb9906bf6cc9483c1",
     "packages/mcp-schemas/vectors/offline-approval-vectors.json": "17824974973c898c7bca1796f120445320f0f934d9537d786175433fd4a1d38f",
     "packages/mcp-schemas/vectors/rfc3161-vectors.json": "24b48b2a41b5edb64d4bac1a32bfcdfbfdbc314b23450a1de02703fb17558baa",
     "packages/mcp-schemas/vectors/tenant-binding-vectors.json": "5aada71fb56da6a441c128959f6d318ed156d746770ccecd930a9049f557afc2",
-    "packages/mcp-schemas/vectors/verifier-parity-vectors.json": "0153f0e3079b6385de82be638f740c31a770a4ff8ea13212471e8166a99582eb",
+    "packages/mcp-schemas/vectors/verifier-parity-vectors.json": "8365ba98b2fdfa5ccc1c3c3b943e911348281f845d00b935bcb25dfaffd56249",
     "packages/mcp-schemas/vectors/webauthn-vector.json": "cb8b98c6acd0640b02c596620ede4c81feb1c0ac0862fae63cb3bbac8d674471"
   }
 }

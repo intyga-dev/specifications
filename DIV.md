@@ -2,7 +2,7 @@
 
 **A Stateless Protocol Primitive for Non-Repudiable Action Authorization in Autonomous and High-Risk Infrastructure.**
 
-*Open Specification · DIV 1.1.0 · Edition 1.1.0 · 10 October 2026*
+*Open Specification · DIV 1.1.1 · Edition 1.2.0 · 19 October 2026*
 
 This source edition defines payload versions 1 and 2.
 
@@ -403,6 +403,12 @@ and a conformant implementation MUST NOT conflate them:
 | `requirement` | Who may approve and how that approval must be produced (§4.3.2). |
 | `requester.attestation` | The provenance of the requesting principal (§4.3.1). |
 | `evidence` | External facts upon which the authorization may be conditioned. |
+
+**Evidence about execution is not `evidence`.** Whether an approved action took effect is established
+after execution, by a party other than the approver, and is recorded in DEWP (§4.7 of that
+specification) as a separately signed `dewp-execution-evidence` statement bound to this payload's
+`nonce` and SHA-256. It never alters the signed Intent Payload, and it is never a substitute for, or an
+input to, the reserved `evidence` field.
 
 **Payload families that do not carry `evidence`, and why.** A Delegation (§5a.5) is sealed before the
 action it authorizes occurs, so it cannot commit to a fact established at approval time; conditioning
@@ -1350,6 +1356,8 @@ The vectors pin, among other things:
   `signerClass` (§4.3.2). All five builders are pinned in every port. Dedicated verifiers check §5b and §5c artifacts;
   the ordinary approval verifier still refuses them, as pinned by the receipt fixtures
   `agent-authority-refused-by-approval-verifier` and `platform-intent-refused-by-approval-verifier`.
+  It likewise refuses a DEWP Execution Evidence Statement (`dewp-execution-evidence`, DEWP §4.7),
+  pinned by `execution-evidence-refused-by-approval-verifier`.
 * **Denial payloads** (§4.3.3) for each of the three ceremony kinds, pinning both the derivation and
   the property the derivation exists for: the denial bytes never equal the approval bytes they
   negate, so a signature over one cannot be presented as the other. Consumed by the TypeScript

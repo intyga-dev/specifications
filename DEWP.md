@@ -2,13 +2,13 @@
 
 **A Stateless Protocol Primitive for Asynchronous Witness Audit, Merkle Inclusion Proofs, and Gapless Completeness in Irreversible Infrastructure.**
 
-*Open Specification · DEWP 1.0.0 · Edition 1.1.0 · 10 October 2026*
+*Open Specification · DEWP 1.1.0 · Edition 1.2.0 · 19 October 2026*
 
 ---
 
 ## Abstract
 
-This document specifies the Deterministic Evidence and Witness Protocol (DEWP), a format for tamper-evident audit commitments and offline evidence verification. It defines canonical event preimages, domain-separated hashing, two-tier Merkle inclusion proofs, per-tenant sequence checks, checkpoint continuity, and independently verifiable anchor evidence. Verifiers report content, commitment, embedded-signature, and anchor verification separately. Completeness checks cover committed events within the evaluated range; they cannot prove that an event was never withheld before commitment or that a committed description accurately records a real-world action. The specification also defines a streaming format that the reference implementations do not yet implement.
+This document specifies the Deterministic Evidence and Witness Protocol (DEWP), a format for tamper-evident audit commitments and offline evidence verification. It defines canonical event preimages, domain-separated hashing, two-tier Merkle inclusion proofs, per-tenant sequence checks, checkpoint continuity, and independently verifiable anchor evidence. Verifiers report content, commitment, embedded-signature, and anchor verification separately. Completeness checks cover committed events within the evaluated range; they cannot prove that an event was never withheld before commitment or that a committed description accurately records a real-world action. Version 1.1 adds execution evidence: a record that an approved action was dispatched, statements signed by independent evidence sources about whether it took effect, and a status a verifier derives under its own trust; that status reports what a trusted source observed, not what physically happened. The specification also defines a streaming format that the reference implementations do not yet implement.
 
 ---
 
@@ -32,6 +32,7 @@ DEWP specifies exclusively:
 4. The schema for portable single-event (`dewp.audit.inclusion-proof`), multi-event (`dewp.audit.evidence-bundle`), and streaming (`dewp.audit.evidence-stream`) proof containers.
 5. Content-Verified, Commitment-Only (Privacy Redacted), Signature-Verified, and Fully-Verified validation levels.
 6. The offline inclusion and gapless completeness verification procedure executed by a Relying Party or auditor.
+7. Execution evidence records, the Execution Evidence Statement, and the Execution Status a verifier derives from them (§4.7).
 
 ## 1.2 Out-of-Scope (Explicit Non-Goals)
 
@@ -40,6 +41,7 @@ DEWP explicitly does **NOT** define:
 * **Pre-Execution Intent Authorization:** Synchronous step-up approvals and intent binding are governed by companion specifications such as DIV [docs/DIV.md].
 * **Storage Engine & Database Schemas:** Physical table storage, indexing, and database engine choice are implementation details.
 * **Public Anchor Transports:** Specific block-anchoring transports (e.g., Git repositories, public transparency logs, distributed ledgers) are external integration choices.
+* **Physical Execution:** §4.7 records what a caller-trusted evidence source reported about an action's effect. Whether that report is true of the physical world, and how a source measures it, are outside this specification (Appendix A is guidance only).
 
 ## 1.3 Relationship to DIV
 
@@ -52,6 +54,8 @@ DEWP provides post-execution evidence by cryptographically committing completed 
 A compliant implementation MAY combine DIV Intent Proofs with DEWP Witness Events by embedding the verified DIV payload, digest hash (`divIntentHash`), and signature metadata into the DEWP Canonical Preimage (array indices 8, 9, 10).
 
 The presence of a DEWP Witness Event MUST NOT be interpreted as proof that DIV authorization occurred unless the associated DIV proof material is independently verified.
+
+DIV's reserved `evidence` field (DIV §4.3.4) is a different thing: external facts an authorization may be conditioned on *before* execution, inside the signed approval. Whether the approved action then took effect is recorded *after* execution, in DEWP (§4.7), and never alters the approval.
 
 Nothing in the preimage or its verification ties these slots to DIV specifically: indices 6..10 carry generic signer, payload and signature material, and verification per §4.6.1 checks the signature over the payload bytes without ever interpreting the payload's schema. Any pre-execution protocol whose proof is a signature over a canonical byte string can occupy them under the same rules; DIV is the companion specification this document uses as its worked example.
 
@@ -72,6 +76,9 @@ Nothing in the preimage or its verification ties these slots to DIV specifically
 * **Commitment-Only Entry:** A privacy-redacted proof entry where event content has been purged under data retention rules, enabling offline verification of historical commitment without exposing sensitive event text.
 * **Tenant Sequence (`tenantSeq`):** A strictly monotonic, gapless 64-bit integer assigned sequentially to a tenant's committed audit events.
 * **Global Sequence (`seq`):** A strictly monotonic numeric ordering counter (stringified 64-bit integer). Distinct from the event **identifier** `id`.
+* **Evidence Source:** A party independent of the one that sent a command, which observes the command's effect and signs an Execution Evidence Statement about it (§4.7.2).
+* **Execution Evidence Statement:** The canonical object of type `dewp-execution-evidence` an evidence source signs, binding a verdict and an observation to one approval's nonce and payload hash (§4.7.2).
+* **Execution Status:** The per-approval result a verifier derives from Approval, Dispatch and Evidence Records under its own evidence-source trust: `confirmed`, `contradicted`, `unconfirmed`, `pending` or `not_reported`, reported together with the §4.7.4 findings (dispatch conflict, late contradiction, untrusted contradiction, window capped, source continuity).
 * **Event Identifier (`id`):** An opaque unique event ID (RECOMMENDED RFC 9562 UUIDv7 for time-ordered sortability). It is an identity value, not an arithmetic ordering counter; verifiers MUST NOT perform `+1` continuity arithmetic on `id`.
 
 ---
@@ -258,7 +265,7 @@ nothing to bind and still verifies as commitment-only.
 
 ## 4.6 Event Signature Scope
 
-The event-level signature material carried in the preimage (`signerDid`, `signerPublicKey`, `signedPayload`, `signature`, `sigAlg` — indices 6..10) is **embedded intent-proof material**, reproduced by reference from a pre-execution authorization protocol — in this document's examples, DIV (`docs/DIV.md`). Its scope MUST be understood precisely to avoid over-claiming:
+The event-level signature material carried in the preimage (`signerDid`, `signerPublicKey`, `signedPayload`, `signature`, `sigAlg` — indices 6..10) is **embedded intent-proof material**, reproduced by reference from a pre-execution authorization protocol — in this document's examples, DIV (`docs/DIV.md`) — **or an Execution Evidence Statement** signed by an evidence source (§4.7). The scope rules below apply to both; §4.7.5 says which trust a verifier applies to which. Its scope MUST be understood precisely to avoid over-claiming:
 
 - **`signedPayload` is the exact, verbatim canonical byte string the signer's key signed** — for a DIV approval, the DIV Intent Payload (`{"actionType":...,"type":"div-intent-verification","v":1}`). It is reproduced byte-for-byte; DEWP does not re-serialize it.
 - **`signature` covers ONLY the bytes of `signedPayload`.** It does NOT cover any DEWP field — not `seq`, not `tenantSeq`, not `createdAt`, not the surrounding preimage array. A verifier MUST NOT infer that the signer attested to the DEWP sequence numbers, timestamps, or Merkle position.
@@ -299,6 +306,356 @@ redacted/unsigned entries and invalid signatures fail that gate. This does not v
 DIV approval policy, quorum, expiry, expected operation, hardware attestation or execution.
 
 
+
+## 4.7 Execution Evidence
+
+A pre-execution approval (DIV) establishes that a human approved exact bytes. A committed DEWP event
+establishes that a record was not altered after commitment. Neither says whether the approved action
+then took effect. This section defines how a producer records that question and its answer, and how a
+verifier evaluates them, without changing the Canonical Preimage, the leaf hash, any Application
+Profile layout, or the bundle `version` (`"1.0"`). Every record defined here is an ordinary leaf, so a
+verifier that does not implement this section still verifies its commitment and content.
+
+The answer is only as good as the party that observed it. §4.7 records **what a caller-trusted evidence
+source reported**, signed by that source. It does not prove what physically happened, and a verifier
+MUST NOT present an execution status as more than that (§4.7.6).
+
+### 4.7.1 Records
+
+Four event types are defined. Each is identified by the `event` element (§4.2 index 2); a producer
+writes the outcome and signature slots shown. Verifiers identify a Dispatch Record by its `event`,
+`metadata` and `createdAt` alone, and an Evidence Record as §4.7.3 says; the outcome of a Dispatch or
+Unconfirmed Record is a producer convention that §4.7.3–§4.7.4 do not read. The approval a record refers
+to is identified by the DIV `nonce` (DIV §4.3), which is unique per approval. In this revision an
+**Approval Record** is a leaf carrying an ordinary DIV Intent Payload (`type` `div-intent-verification`,
+located as §4.7.3 step 5 says). Offline approvals (DIV §5a), delegations, agent-authority seals and
+platform intents (DIV §5c) are not Approval Records: an action approved through them cannot be
+dispatched or confirmed under §4.7, and a statement naming one reads `unbound`.
+
+| `event` | `outcome` | Signature slots (indices 6..10) | `metadata` (index 5) |
+|---|---|---|---|
+| `EXECUTION_DISPATCHED` | `PENDING` | all `null` | object containing `nonce`, `payloadSha256`, `evidenceDeadline` |
+| `EXECUTION_CONFIRMED` | `SUCCESS` | Execution Evidence Statement, `ES256` | any |
+| `EXECUTION_CONTRADICTED` | `FAILURE` | Execution Evidence Statement, `ES256` | any |
+| `EXECUTION_UNCONFIRMED` | `FAILURE` | all `null` | any |
+
+- A **Dispatch Record** states that the executing party sent the approved action to its target and
+  expects evidence by `evidenceDeadline`. Its `metadata` MUST be an object whose `nonce` is the approval's
+  DIV nonce, whose `payloadSha256` is the lowercase hex SHA-256 of the UTF-8 bytes of the approved DIV
+  Intent Payload, and whose `evidenceDeadline` follows the §4.3 timestamp rule. Other members are
+  permitted and are ignored by §4.7.3–§4.7.4; a leaf of this event type whose `metadata` does not
+  satisfy these rules, or whose `createdAt` does not, is not a Dispatch Record. A Dispatch Record is
+  written by or on behalf of the party
+  that executes, which is the party least able to attest that execution succeeded; it is therefore never
+  evidence of success. Several Dispatch Records MAY name one nonce (a retry, a re-dispatch). Because the
+  executing party writes them, a verifier never lets one of them decide which statements bind (§4.7.3
+  step 5), bounds the window they open (§4.7.3 step 6), and reports records for one nonce that disagree
+  on `payloadSha256` as a dispatch conflict (§4.7.4). A later record never reopens or extends the
+  window: the lowest-seq matching record governs it, so a re-dispatch after the first window closed is
+  recorded but cannot be confirmed — otherwise re-dispatching would keep a nonce `pending` at will.
+- An **Evidence Record** carries one Execution Evidence Statement (§4.7.2) in its signature slots:
+  `signerDid` is the statement's `source`, `signerPublicKey` the base64 SPKI of the P-256 key that
+  signed it, `signedPayload` the statement bytes, `signature` the base64 ECDSA P-256 / SHA-256 signature
+  over those bytes (IEEE P1363 or DER, as for `ES256` in §4.6.1), and `sigAlg` `ES256`. Its `event` and
+  `outcome` MUST match the signed `verdict` as tabulated. A producer relays a statement; it cannot author
+  one, because it does not hold the source's key.
+- An **Unconfirmed Record** is the producer's own, unsigned note that `evidenceDeadline` passed without
+  qualifying evidence. It is an alarm, not evidence: verifiers derive `unconfirmed` themselves (§4.7.4)
+  and MUST NOT require or rely on this record. A negative statement needs no trusted signer, so this is the
+  only §4.7 record a producer writes on its own authority.
+
+All four are appended, never updated. Evidence that arrives after an Unconfirmed Record is still
+committed; the history keeps both.
+
+### 4.7.2 Execution Evidence Statement
+
+The statement is the object an **Evidence Source** signs: a party independent of the one that sent the
+command — for example a protection relay reporting breaker position, or a measured-boot attestation
+reporting the digest of the firmware that actually booted.
+
+```json
+{
+  "approval": {
+    "nonce": "4f6c1c9e-1b8a-4e2f-9d3a-7c2b5e8f0a1d",
+    "payloadSha256": "5d1f…(64 lowercase hex)…"
+  },
+  "observation": { "breaker": "open", "currentA": 0, "previousCurrentA": 412 },
+  "observedAt": "2026-10-05T14:02:11.000Z",
+  "sampledAt": "2026-10-05T14:02:09.500Z",
+  "sequence": 418,
+  "source": "did:example:relay-7",
+  "type": "dewp-execution-evidence",
+  "v": 1,
+  "verdict": "confirmed"
+}
+```
+
+Normative rules:
+
+1. The statement MUST be a JSON object with exactly the nine members shown, and `approval` MUST have
+   exactly the two members shown.
+2. `type` MUST be the string `dewp-execution-evidence` and `v` the integer `1`. The type is distinct from
+   every DIV payload `type`, so a statement can never verify as an approval and an approval can never
+   verify as a statement; DIV approval verifiers MUST refuse it.
+3. `approval.nonce` MUST be a non-empty string: the DIV nonce of the approval the evidence is about.
+   `approval.payloadSha256` MUST be 64 lowercase hexadecimal characters: the SHA-256 of the UTF-8 bytes
+   of that approval's DIV Intent Payload. The hash binds the evidence to the exact approved bytes, so a
+   statement cannot be moved to another approval.
+4. `source` MUST be a non-empty string naming the evidence source, and MUST equal the Evidence Record's
+   `signerDid`.
+5. `verdict` MUST be `confirmed` (the source observed the approved effect) or `contradicted` (the source
+   observed that it did not take effect, or took a different effect). A source that cannot decide MUST NOT
+   sign; the absence of qualifying evidence is what produces `unconfirmed`.
+6. `observedAt` MUST follow the §4.3 timestamp rule. It is the source's claim of when it produced the
+   statement; when the measurement behind it was taken is `sampledAt` (rule 11).
+7. `observation` MUST be a JSON object and MAY be empty. Its content is domain-specific, covered by the
+   signature, and not interpreted by §4.7.3–§4.7.4. Appendix A gives non-normative guidance on what it
+   should establish.
+8. Every number anywhere in the statement MUST be portable (§4.3.1) and MUST have a magnitude of at
+   most 2^53 − 1 (9007199254740991), no string in it may contain an unpaired surrogate (DIV §4.1), and it
+   MUST NOT nest arrays and objects more than 64 levels deep (the statement object itself is level 1).
+   The integer bound is tighter than §4.3.1's because some parsers read every number as a double: above
+   2^53 they would read a different integer from the same digits, and the same bytes would be a
+   different statement in different verifiers.
+9. The statement bytes MUST be the RFC 8785 serialization of the statement's own parsed value. A verifier
+   MUST parse the bytes as described in §4.7.7, re-serialize them under RFC 8785 and compare, and MUST
+   treat a parse failure or a mismatch as malformed. This makes duplicate member names, insignificant whitespace and non-canonical number or
+   string spellings malformed, so every conformant parser reads the same statement from the same bytes.
+10. The statement bytes MUST NOT exceed 16,384 bytes.
+11. `sampledAt` MUST follow the §4.3 timestamp rule and MUST NOT be later than `observedAt`. It is the
+    source's claim of when the measurement behind `observation` was taken. The evidence window (§4.7.3
+    step 6) is evaluated on `sampledAt`, so a statement produced inside the window over a measurement
+    taken outside it is `stale`; a source that reports a measurement it took earlier says so by signing
+    the earlier time.
+12. `sequence` MUST be an integer from 1 to 2^53 − 1: the source's own count of statements it has signed
+    for this producer's log, incremented by exactly one per statement and never reused. The log is the
+    unit an Evidence Bundle is exported for — on a multi-tenant producer, one tenant's log. A source
+    that signs for several logs keeps a counter per log; one counter shared across logs shows as gaps in
+    each. The counter is what lets a verifier see a statement that is missing from the bundle (§4.7.3,
+    Source continuity).
+
+### 4.7.3 Statement Check
+
+A verifier reads only content-verified entries (§7.1): a redacted entry, or a preimage that is not
+bound to its leaf, is not read as any §4.7 record, as §7.2 already requires of every other field.
+
+For each Evidence Record — a content-verified leaf whose `event` is `EXECUTION_CONFIRMED` or
+`EXECUTION_CONTRADICTED`, or whose `signedPayload` parses (§4.7.7) as a JSON object with `type` equal to
+`dewp-execution-evidence`; either suffices, so a record cannot avoid evidence-source trust by
+mislabelling one side — a verifier MUST report a check with a `status`, a `reason` and a `trusted` flag,
+applying these steps in order. The first step that decides the status ends the check, except that
+`trusted` set in step 4 is retained by steps 5 and 6.
+
+1. `sigAlg` is not `ES256`, or `signature`, `signerPublicKey` or `signedPayload` is missing: `invalid`.
+2. The statement violates any rule of §4.7.2 other than rule 4: `invalid`.
+3. `source` differs from `signerDid`, or `event`/`outcome` do not match `verdict` (§4.7.1): `invalid`.
+4. Signature:
+   - Without an evidence-source trust policy, the signature is checked under the embedded
+     `signerPublicKey`: `invalid` if it does not verify, otherwise `trusted` is false and the check
+     continues. As in §4.6.1, an embedded key MUST NOT establish who the source is.
+   - With a policy, the caller-provisioned keys for `source` are tried in turn. None provisioned:
+     `not_checked`. None verifies: `invalid`. One verifies: the check continues, and `trusted` is true
+     unless that key carries a validity interval (§4.7.5) and the record's anchored time is unknown or
+     lies outside it; then `trusted` is false and the reason says so. An unbounded key needs no
+     anchored time.
+   - Evidence-source trust is separate from approver trust. A verifier MUST NOT accept an approver's key
+     as an evidence source's, or the reverse (§4.7.5).
+5. Binding, evaluated over the content-verified entries of the same bundle:
+   - the **matching Dispatch Records** for `approval.nonce` are those whose `metadata.payloadSha256`
+     equals the statement's; there is none: `unbound`. The **governing Dispatch Record** is the matching
+     one with the lowest `seq`. A Dispatch Record carrying another hash never decides this step: the
+     executing party writes Dispatch Records, and letting its earliest one govern would let it unbind
+     every genuine statement by committing one wrong record first;
+   - no **Approval Record** exists — a leaf whose `signedPayload` parses (§4.7.7) as a JSON object with `type`
+     `div-intent-verification` and `nonce` equal to `approval.nonce`, and whose `signedPayload` bytes hash
+     to `approval.payloadSha256`: `unbound`.
+6. Window. The **effective deadline** is the earlier of the governing Dispatch Record's `evidenceDeadline`
+   and its `createdAt` plus the verifier's maximum evidence window: the window is bounded by the
+   verifier, never by the dispatch alone, or an executing party could keep a nonce `pending` forever.
+   `sampledAt` earlier than the governing record's `createdAt` minus the skew allowance: `stale`
+   (reason `early`); later than the effective deadline: `stale` (reason `late`). The skew allowance
+   covers clock error between the source and the producer and nothing else — it also admits a
+   measurement taken just before dispatch, which for an action with no visible change confirms a no-op —
+   so it is small: this profile's default is 30 seconds. The maximum evidence window defaults to 86 400
+   seconds. Both are caller-overridable per verification and MAY be given other defaults by an
+   Application Profile; a slow process is accommodated by raising them for that verification, never by
+   leaving them loose.
+7. Otherwise: `verified`.
+
+**Source continuity.** Over the Evidence Records whose check passed step 4 (the statement parsed, its
+`source` matches, and its signature verified under the embedded or a provisioned key), a verifier MUST
+also report, per `source`: the smallest and largest `sequence` seen, every integer strictly between them
+that no record carries (a **gap**), and every value carried by two records whose statement bytes differ
+(a **divergence**). A gap means a statement the source signed is absent from the bundle, whether withheld
+from commitment or outside the exported range; a divergence means the source, or someone holding its
+key, signed two statements under one counter value. Neither changes a statement's own check or an
+Execution Status; both are findings (§4.7.4). Only the range inside the bundle can be checked: a source
+that stops signing, or whose later statements were all withheld, leaves no gap. A gap closes when the
+missing statement is committed later: refusal commits nothing, so a statement lost in transit, or
+refused for a cause the relaying party can fix, can be relayed again. A statement the producer can
+never accept — malformed, or signed under a key it will never register — leaves a permanent gap, and a
+caller applying the require-all policy (§4.7.4) must expect it. A producer that refuses a statement it
+could parse SHOULD record the refusal where its operators can see it, naming the `source` and the
+`sequence`, so a gap can be explained from the log.
+
+A single Inclusion Proof carries one leaf, so only steps 1–4 can be evaluated for it; a verifier MUST NOT
+report a single proof's statement as `verified`, and reports `unbound` with that reason.
+
+A check other than `verified` MUST be reported and MUST NOT by itself invalidate the entry's commitment,
+content or signature verification: the statement is committed evidence that does not support the claim,
+not evidence that the bundle was altered.
+
+### 4.7.4 Execution Status
+
+For every DIV nonce named by a content-verified Approval Record, Dispatch Record or Evidence Record in an
+Evidence Bundle, a verifier implementing this section MUST report an **Execution Status**. Approval
+Records are enumerated so that an approval with no dispatch and no evidence is reported rather than
+passed over: silence is the case a caller requiring confirmation most needs to see.
+
+| Status | Condition, evaluated in this order |
+|---|---|
+| `contradicted` | Some statement for the nonce is `verified`, `trusted`, with verdict `contradicted`. |
+| `confirmed` | Some statement for the nonce is `verified`, `trusted`, with verdict `confirmed`. |
+| `not_reported` | There is no Dispatch Record for the nonce. |
+| `unconfirmed` | The governing Dispatch Record's effective deadline (§4.7.3 step 6) is earlier than the evaluation time. |
+| `pending` | Otherwise. |
+
+Where no statement for the nonce reached §4.7.3 step 6, the governing Dispatch Record is the one with
+the lowest `seq` among those naming the nonce. `contradicted` takes precedence over `confirmed`: one
+trusted source that saw the action fail outweighs another that saw it succeed, and the disagreement is
+itself the finding. Untrusted, `unbound` and `stale` statements never decide a status; late evidence
+leaves a nonce `unconfirmed`.
+
+Beside the status, a verifier MUST report these **findings** for the nonce. None changes a status:
+
+- **Dispatch conflict** — Dispatch Records for the nonce that disagree on `payloadSha256`. The executing
+  party wrote two accounts of what it dispatched; which statements bind is decided by §4.7.3 step 5, and
+  the disagreement itself is reported.
+- **Late contradiction** — a statement for the nonce that is `trusted`, bound (§4.7.3 step 5 passed)
+  and `contradicted`, but `stale` because `sampledAt` is later than the effective deadline. The window
+  rule stands, so the status is not `contradicted`; but a trusted source saying the action did not take
+  effect is the case that most needs escalation, and it MUST be reported as its own alert rather than
+  folded into `unconfirmed`.
+- **Window capped** — the governing Dispatch Record's own `evidenceDeadline` lay beyond the verifier's
+  maximum evidence window, so the effective deadline is earlier than the record claims.
+- **Untrusted contradiction** — a `contradicted` statement for the nonce that is bound and sampled
+  at or after the window's start (including its clock-skew allowance), whether inside the window or
+  late, and whose signature verified under a caller-provisioned key, but which did not establish trust
+  because that key's validity could not be placed in time or the record lay outside it (§4.7.5). It
+  cannot decide the status, but a registered source's key signed a contradiction, and silence about it
+  would let an unbounded source's `confirmed` stand unchallenged. A late statement still produces this
+  finding when it meets those conditions; lateness and missing key trust MUST NOT cancel each other
+  out. Early or unbound statements, and statements verified only under an embedded key rather than a
+  caller-provisioned key, do not produce this finding.
+- **Source continuity** — the per-source gaps and divergences of §4.7.3, reported per source.
+
+`unconfirmed` and `contradicted` are both "not confirmed", but they call for different responses and an
+implementation should keep them distinguishable to its operators. `unconfirmed` means the outcome cannot
+be told — often benign, such as a lost or stale sensor — and calls for investigation. `contradicted`
+means a trusted source observed that the approved effect did not take place, and calls for escalation.
+Reporting both the same way would blunt the alarm in the case that matters.
+
+The evaluation time is the caller's to choose and defaults to the current time. It MUST be an input
+rather than a hidden clock so a status can be reproduced; a status computed at one time can change from
+`pending` to `unconfirmed` later, and a later export can change any status by adding evidence. An
+Unconfirmed Record does not change the status (§4.7.1).
+
+Execution Status is reported alongside the four §7.1 properties and does not affect them or the derived
+Verification Level. A caller MAY require every reported nonce to be `confirmed` as an acceptance policy.
+Under it a bundle that reports no nonce MUST fail rather than pass vacuously, and a dispatch conflict,
+a gap, a divergence, a late contradiction or an untrusted contradiction MUST fail it as well: the
+first three mean the bundle does not carry the whole account, and the last two mean a registered
+source signed a contradiction that the status could not count — an executing party that chose a
+short window, or a bundle handed over without the anchors that place a key in time, must not clear a
+policy that requires confirmation. An
+approval that was never dispatched — never consumed, or a ceremony the producer applies itself — is
+`not_reported` and fails that policy too; a caller applying it to a bundle containing such approvals
+must expect that.
+
+### 4.7.5 Trust
+
+A verifier MUST take evidence-source trust from the caller, as a mapping from `source` to one or more
+base64 SPKI P-256 keys, separate from the approver trust of §4.6.1. The separation is load-bearing: the
+party that approved an action is not an independent observer of its effect, and a source key accepted as
+an approver key would let an observation device approve.
+
+Each key MAY carry a validity interval: `notBefore` and `notAfter`, each a §4.3 timestamp, either one
+optional, both inclusive. A key entry is either the bare key or an object with exactly the members
+`key`, `notBefore` and `notAfter` (the last two optional); an entry with any other member, or with a
+bound that is present but is not a §4.3 timestamp, verifies a signature but establishes no trust — a
+misspelt or mistyped bound must fail closed, never read as "no bound". A key with an interval
+establishes trust in a statement only when the Evidence Record's **anchored time** lies within it. The
+anchored time is the earliest external witness time (§5.3: Rekor `integratedTime`, TSA `genTime`)
+among the anchors that counted toward quorum for the checkpoint the record's own inclusion proof names,
+and only if the record's `seq` lies within the `seqStart`..`seqEnd` those anchors were held to; it is
+the latest the record can have been committed, and a witness cannot be backdated. A verifier MUST NOT
+take the anchored time from any other checkpoint — one listing an over-wide range would backdate
+every record under it — and MUST refuse a bundle that lists one root twice with differing fields.
+`observedAt` and `sampledAt` are the source's own claims — a compromised key could place a statement
+inside a period when the key was still valid — and a verifier MUST NOT use them for this. A record no
+counting anchor covers has no anchored time, and a bounded key then does not establish trust; the
+reason is reported, and a contradiction so refused is still a finding (§4.7.4). An unbounded key is
+unaffected. The same anchored time governs the §4.6.1 signature check of an Evidence Record, so the two
+reports agree. Because the anchored time is an upper bound on the commit time, the two bounds are not
+symmetric: `notAfter` is conservative — a record committed inside the interval but anchored after it is
+refused — while `notBefore` admits a record committed before it and anchored after it, by up to one
+checkpoint period. DEWP gives a verifier no lower bound on when a record was committed, so a caller for
+whom the start of a key's validity matters relies on the producer's registry having refused the key
+before that time, not on `notBefore` alone.
+
+For an Evidence Record, the §4.6.1 signature check (and any caller policy requiring trusted signatures)
+MUST therefore use evidence-source trust: when the caller supplies approver trust but no evidence-source
+trust, an Evidence Record's signature is not checked. A leaf of any other kind is never checked against
+evidence-source trust. When the caller supplies no trust at all, §4.6.1's embedded-key behaviour is
+unchanged.
+
+A producer MAY maintain its own registry of evidence sources and refuse statements from unregistered or
+revoked ones before committing them; that registry is producer policy and does not substitute for the
+verifier's own trust. Revoking a source's key does not invalidate statements already committed under
+it: a caller expresses the revocation as the key's `notAfter`. Because trust is decided at the anchored
+time, a `notAfter` equal to the revocation instant refuses every statement in the same checkpoint
+period, those committed before the revocation included. A caller that wants them to keep their trust
+sets `notAfter` to the earliest witness time of the first checkpoint anchored after the revocation —
+the latest any of them can have been committed. That bound also admits a statement committed between
+the revocation and that anchor; on a producer that refuses revoked sources at ingest there is none.
+
+### 4.7.6 What Execution Status Does Not Establish
+
+- **Physical truth.** `confirmed` means a source the caller trusts signed an in-window statement saying
+  the approved effect was observed. A compromised, misconfigured or mis-wired source produces a genuine
+  signature over a false observation. Where that matters, the caller should trust only sources whose
+  observations are independent physical measurements, and claim no more than they support.
+- **Completeness, beyond the counter.** The per-source `sequence` exposes a statement missing from
+  inside the range a bundle covers; it does not expose a source that stopped signing, or statements
+  after the last one committed (§4.7.3, Source continuity). Within that limit a withheld `contradicted`
+  is a gap, not a `confirmed`; beyond it the ledger still leaves no gap to detect (§3 Invariant 4).
+- **Content that was redacted.** §4.7 reads content-verified entries only (§4.7.3). Once a Dispatch or
+  Approval Record is redacted to commitment-only under retention (§7.1), the statements it bound read
+  `unbound`; once an Evidence Record is, its statement no longer counts. A status computed after a
+  redaction can therefore differ from one computed before it, exactly as a later export can change a
+  status by adding evidence; a caller that needs the status as it stood keeps the earlier bundle.
+- **Approval validity.** The Approval Record is located by its payload type, nonce and hash only.
+  Whether it carries a valid, trusted approval under the caller's DIV policy is decided by §4.6.1 and DIV,
+  not by this section.
+- **Who executed.** A Dispatch Record is the executing party's own statement.
+
+### 4.7.7 Parsing Signed Payloads
+
+Every place §4.7 says a `signedPayload` or a statement "parses", a verifier MUST apply this one
+procedure, so that no two conformant verifiers classify the same bytes differently:
+
+1. The whole string is one RFC 8259 JSON text: no trailing content after the value (whitespace aside),
+   and no non-standard literals such as `NaN` or `Infinity`.
+2. Arrays and objects nest at most 64 levels deep, the outermost value counting as level 1. A deeper
+   text does not parse. (Parsers differ in their built-in depth limits; this bound is below all of them.)
+3. When a member name repeats, the last occurrence wins, as in the reference parsers. For a statement
+   this is moot: §4.7.2 rule 9 refuses any repeated name, because re-serialization cannot reproduce it.
+4. Every number is finite when read as an IEEE 754 double: `1e400`, or an integer too long for any
+   double, does not parse (some parsers refuse it, others would read infinity or an exact big integer).
+5. Timestamps (§4.3) consist of ASCII digits only, and year `0000` is a valid year.
+
+A payload that does not parse is neither an Execution Evidence Statement nor an Approval Record. Its
+leaf is still an Evidence Record when its `event` says so (§4.7.3), and is then reported `invalid`.
 
 ---
 
@@ -635,8 +992,9 @@ Normative machine-readable JSON Schemas (Draft 2020-12) for the containers in th
 * `docs/schemas/dewp/inclusion-proof.schema.json` — `dewp.audit.inclusion-proof`
 * `docs/schemas/dewp/evidence-bundle.schema.json` — `dewp.audit.evidence-bundle`
 * `docs/schemas/dewp/anchor.schema.json` — signed anchor object (§5.2)
+* `docs/schemas/dewp/execution-evidence-statement.schema.json` — Execution Evidence Statement (§4.7.2)
 
-The JSON examples below are illustrative; where an example and a schema disagree, the schema governs. Each schema accepts only the canonical `dewp.audit.*` `kind` (§6.5).
+The JSON examples below are illustrative; where an example and a schema disagree, the schema governs. Each container schema accepts only the canonical `dewp.audit.*` `kind` (§6.5); the statement schema describes a signed object, not a container, and has no `kind`.
 
 ## 6.1 Algorithm Registry Object
 
@@ -973,6 +1331,8 @@ A bundle MAY carry a summary `verificationLevel` for display, but conformant ver
 
 A Relying Party MUST NOT treat `SIGNATURE_VERIFIED` as implying independent non-repudiation: without `anchorVerified` the root is still only vendor-asserted.
 
+A verifier implementing §4.7 additionally reports, for an Evidence Bundle, an Execution Status per approval nonce and a check per Evidence Record. These sit beside the four properties: they never change a property or the derived level, and an Execution Status is only as meaningful as the entries it was computed from — a `confirmed` status over entries that are not anchor-verified rests on a vendor-asserted root.
+
 ## 7.2 Check 6 — Tenant Sequence Continuity: Source, Disclosure, Declared Range
 
 An Evidence Bundle carries `tenantSeq` in up to three places per entry, and only one of them is covered by the Merkle commitment:
@@ -1042,6 +1402,15 @@ Requires implementation of **DEWP Core** plus:
 - Offline event-signature verification of embedded intent-proof material (Sections 1.3 & 7.1), evaluated **per entry** in a multi-entry bundle as well as for a single inclusion proof. Only signature material a leaf carries in full is checkable offline: `ES256` over `signedPayload`, or a `WEBAUTHN` assertion when the Application Profile carries `authenticatorData` and `clientDataJSON` and the caller supplies signer trust, expected origin and RP ID (§4.6.1). Missing material/trust is reported as not checked; `AUTO_APPROVED` has no human signature and is not applicable. A caller may require trusted signatures as an additional acceptance policy. An entry whose committed signature does not verify MUST be reported, but MUST NOT by itself invalidate the entry's commitment or content verification — the signature bytes are themselves committed, so a failure there means the producer anchored proof material that does not check out, not that the bundle was altered.
 - Support for Application Profile Extensions (Section 4.5).
 
+### 9.3 Execution Evidence (optional, version 1.1)
+An Extended implementation MAY additionally claim Execution Evidence conformance, which requires:
+- Recognition of Evidence Records and the §4.7.3 statement check, with evidence-source trust separate from approver trust (§4.7.5) in both the statement check and the §4.6.1 signature check.
+- The §4.7.4 Execution Status for every nonce in an Evidence Bundle — Approval Records included — with a caller-supplied evaluation time, skew allowance and maximum evidence window; the §4.7.4 findings (dispatch conflict, late contradiction, untrusted contradiction, window capped, source continuity); evidence-source key validity intervals checked at the anchored time (§4.7.5); and an optional caller policy requiring every nonce to be `confirmed`.
+- The §4.7.7 parsing procedure wherever §4.7 parses a signed payload, so that no two verifiers classify the same bytes differently.
+- The `executionEvidence` cases of `verifier-parity-vectors.json` (§10).
+
+The repository's TypeScript, Python, Go, Rust and Java verifiers claim it.
+
 ---
 
 # 10. Reference Test Vectors
@@ -1055,7 +1424,11 @@ self-contained `dewpEvidenceHardening` section (own keys) pins the September 202
 counter source, tenant binding, unknown profiles, caller-trusted checkpoint records, duplicate entries,
 leaf-count binding and the anchor algorithm registry — and its `verifierInputHardening` section
 (own keys) pins the §5.2 RSA-PSS profile (salt length, key size) and the §5.3 admission rules for
-divergence evidence.
+divergence evidence. Its `executionEvidence` section (own keys) pins §4.7: every statement-check
+outcome, every Execution Status, the precedence, binding, window and window-bound rules, the
+enumeration of Approval Records, the late-contradiction, untrusted-contradiction, dispatch-conflict and source-continuity
+findings, key validity at the anchored time, and the separation of evidence-source trust from approver
+trust.
 
 The cases below are **not** drawn from those files. They are independent worked examples over the
 **bare 12-element Core** array (no Application Profile), provided so an implementer can check a fresh
@@ -1229,6 +1602,7 @@ If `hashAlgorithm` is upgraded to `SHA3-256` or `BLAKE3`:
 
 1. **Preimage Array Format:** The 12-element Canonical Preimage array MUST NOT be reordered. Future protocol extensions MUST append new fields to the end of the array (index 11+ before `tenantSeq`) accompanied by a `version` bump or Application Profile.
 2. **Backward Compatibility:** Verifiers encountering a `version: 2` bundle MUST process the fixed core fields `0..10`, and `tenantSeq` at the **final** index, as defined in this specification — "last", not a fixed numeric position, is `tenantSeq`'s only location rule (§4.1/§4.5).
+3. **Additive Revisions:** A revision that adds only new event types or new signed statements carried in the existing slots — as version 1.1 does (§4.7) — keeps the bundle `version` at `"1.0"` and the profile unchanged, so earlier verifiers keep verifying commitment and content. Such a revision MUST NOT change the meaning of an existing event type or of existing slot contents.
 
 The §5.2 signed input binds the checkpoint's position (seq range and chain hash) since the September
 2026 pre-release correction. That makes a genuine anchor for another checkpoint distinguishable from a
@@ -1265,6 +1639,8 @@ What an attacker gains by compromising each component:
 | **Audited Application / DB** | Can delete local DB rows. **Mitigation:** Deleting rows breaks `tenantSeq` gaplessness and leaves un-matched leaf hashes under the public anchor. |
 | **Witness Platform Server** | Can withhold evidence exports (denial of service). **Mitigation:** Cannot rewrite past events without breaking published daily roots. |
 | **Single Anchor Provider** | Could sign an alternate root. **Mitigation:** Multi-anchor verification (`anchors: [...]`) detects anchor divergence. |
+| **Executing Party** | Can claim dispatch, write misleading Dispatch Records and withhold contrary evidence. **Mitigation:** It cannot author an Execution Evidence Statement (it lacks the source's key), so it cannot produce `confirmed`; an early Dispatch Record with another hash cannot unbind genuine statements and is reported as a conflict, and a far-out deadline is cut to the verifier's window (§4.7.3); a statement withheld from inside the exported range shows as a gap in the source's `sequence`, one after the last committed statement does not (§4.7.6). |
+| **Evidence Source** | Can sign a false observation. **Mitigation:** None within DEWP. Trust sources whose observations are independent physical measurements, prefer several, and note that one trusted `contradicted` outweighs any number of `confirmed` (§4.7.4). |
 
 ---
 
@@ -1295,5 +1671,48 @@ Each property below is referenced elsewhere as **§17.N**.
 ## 18.2 Informative References
 
 * DIV Specification — Deterministic Intent Verification (`docs/DIV.md`).
+* RFC 9334 — Remote ATtestation procedureS (RATS) Architecture. Relevant to evidence sources that report measured-boot or attestation results (Appendix A).
 * RFC 3161 — Internet X.509 Public Key Infrastructure Time-Stamp Protocol (TSP).
 * draft-williams-intent-token — describes a JWT-based pre-execution authorization token paired with a hash-chained audit structure ("Fractal Crypto-Temporal Graph"); DEWP differs by providing two-hop Merkle inclusion proofs and independently-anchored quorum verification (§3, §5) rather than a single unanchored hash chain.
+
+---
+
+# Appendix A. Evidence Criteria for Physical Actions (Non-Normative)
+
+What a statement should establish depends on the action. These criteria, from control-system
+practice, illustrate the bar for an independent observation:
+
+- **Separation from the command path.** The party that sent a command should not be able to write the
+  evidence about its effect. Evidence produced by the same controller, service or credential that
+  issued the command is that party's own account.
+- **Cross-checked state, not reported intent.** For a circuit breaker, position from the auxiliary
+  contacts (52a/52b) cross-checked against independently measured current or voltage within a defined
+  window. Account for prior conditions: if no current flowed before, zero current afterwards proves
+  nothing, and the observation should record the prior state alongside the new one.
+- **What actually runs, not what was installed.** For firmware, the digest of the image that actually
+  booted, from measured boot or remote attestation (RFC 9334) — never a hash the updated application
+  reports about itself.
+- **Missing, stale or contradictory evidence is not success — and the two are not the same.** A source
+  should sign `contradicted` when its measurements disagree with the approved effect, and sign nothing
+  when it cannot decide. Neither outcome defaults to success, but they call for different responses:
+  `unconfirmed` (the source could not tell — often a lost or stale sensor) calls for investigation,
+  `contradicted` (a trusted source saw the action not take effect) for escalation.
+- **A compromised source limits the claim.** If the source itself may be compromised, claim only what
+  independent physical measurements support.
+- **Read-back is not independence.** Evidence read back through the controller under test — the PLC
+  that executed the command reporting its own outputs, the updated device reporting its own firmware
+  hash — is that controller's account, not an observation of it.
+- **Independent means separately sensed.** Sources that share a sensing path (one transducer, one I/O
+  card, one network tap) or one time source are not independent of each other; "prefer several" means
+  several that fail separately, not several readings of one signal.
+- **Observe after settling.** The evidence window must open after the process has settled: a breaker
+  takes tens of milliseconds, a reboot minutes. A source that samples before settling sees the old state
+  and signs `contradicted` for an action that then succeeded; the executing party sizes the window for
+  the process, and the source signs `sampledAt` so a verifier can tell when it looked. This is also why
+  the pre-dispatch allowance is small and covers clock error only (§4.7.3 step 6): a measurement from
+  just before dispatch, of a state that was already in place, confirms a no-op.
+- **One-way from source to log.** Where possible the path from an evidence source to the log should be
+  one-way (a data diode, a push-only forwarder), so that neither the party being observed nor the log
+  can reach back into the source.
+
+These criteria are offered as review criteria, not as field-validated results.

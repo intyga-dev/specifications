@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intyga.com/schemas/dewp/execution-evidence-statement.schema.json",
+  "title": "DEWP Execution Evidence Statement",
+  "description": "The object an evidence source signs about whether an approved action took effect (DEWP §4.7.2). Structural validation only: the statement bytes MUST also equal their own RFC 8785 serialization, every number MUST be portable (§4.3.1), every number MUST have magnitude at most 2^53 − 1, nesting MUST NOT exceed 64 levels, the bytes MUST NOT exceed 16,384, `sampledAt` MUST NOT be later than `observedAt`, and `source` MUST equal the Evidence Record's signerDid. A valid statement reports what its source observed, not what physically happened.",
+  "type": "object",
+  "required": [
+    "approval",
+    "observation",
+    "observedAt",
+    "sampledAt",
+    "sequence",
+    "source",
+    "type",
+    "v",
+    "verdict"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "approval": {
+      "type": "object",
+      "required": ["nonce", "payloadSha256"],
+      "additionalProperties": false,
+      "properties": {
+        "nonce": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The DIV nonce of the approval the evidence is about."
+        },
+        "payloadSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Lowercase hex SHA-256 of the UTF-8 bytes of that approval's DIV Intent Payload."
+        }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "description": "Domain-specific observation, covered by the signature and not interpreted by verifiers (DEWP Appendix A)."
+    },
+    "observedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+      "description": "When the source produced the statement, in the DEWP §4.3 timestamp form. The measurement time is sampledAt."
+    },
+    "sampledAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+      "description": "When the measurement behind the observation was taken (DEWP §4.3 form); not later than observedAt. The evidence window is evaluated on it."
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991,
+      "description": "The source's own gapless count of statements signed for this producer's log, incremented by exactly one per statement and never reused (DEWP §4.7.2 rule 12)."
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The evidence source's identifier; equals the Evidence Record's signerDid."
+    },
+    "type": { "const": "dewp-execution-evidence" },
+    "v": { "const": 1 },
+    "verdict": {
+      "enum": ["confirmed", "contradicted"],
+      "description": "confirmed: the approved effect was observed. contradicted: it was observed not to take effect, or to take a different effect."
+    }
+  }
+}
